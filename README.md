@@ -22,14 +22,18 @@ A production-ready e-commerce backend built with Go, featuring microservices arc
 - Metrics endpoint: ✅ Working (/metrics with Prometheus format)
 - Integration tests: ✅ All passing (4/4 test cases)
 
-### Phase 2: Database Integration & Basic Services ⏳ **NEXT**
-- [ ] PostgreSQL integration with connection pooling
-- [ ] Database migrations system
-- [ ] Redis setup for caching and session management
-- [ ] User Service (authentication, JWT, user management)
-- [ ] Product Service (CRUD operations, basic search)
-- [ ] Basic gRPC communication between services
-- [ ] Protocol Buffers setup
+### Phase 2: Database Integration & Basic Services ✅ **COMPLETED**
+- [x] PostgreSQL integration with connection pooling
+- [x] Database migrations system  
+- [x] Redis setup for caching and session management
+- [x] User Service (authentication, JWT, user management)
+- [x] Complete REST API with 15 endpoints
+- [x] JWT authentication with access/refresh tokens
+- [x] Password security with bcrypt hashing
+- [x] Email verification and password reset flows
+- [x] User profile and address management
+- [x] Integration tests and error handling
+- [x] Repository pattern and clean architecture
 
 ### Phase 3: Event-Driven Architecture 📋 **PLANNED**
 - [ ] Kafka integration and event schemas
@@ -89,37 +93,113 @@ A production-ready e-commerce backend built with Go, featuring microservices arc
 - **Observability**: ELK Stack, Prometheus, Grafana, Jaeger
 - **Security**: Vault, JWT, TLS/mTLS, RBAC
 
-## Quick Start
+## 🚀 Quick Start for Development
 
 ### Prerequisites
-- Go 1.21+
-- Docker & Docker Compose
-- kubectl (for Kubernetes deployment)
+- Go 1.21 or later
+- Docker and Docker Compose
+- Git
 
-### Local Development
+### Local Development Setup
 
-1. **Clone and setup**:
+1. **Clone and Setup**
+   ```bash
+   git clone <repository>
+   cd ecommerce-platform
+   make dev-setup
+   ```
+
+2. **Start User Service**
+   ```bash
+   make run-user-service
+   ```
+   This automatically starts PostgreSQL, Redis, Jaeger, and Prometheus, then runs the User Service.
+
+3. **Test the API**
+   ```bash
+   # Register a user
+   curl -X POST http://localhost:8080/api/v1/auth/register \
+     -H "Content-Type: application/json" \
+     -d '{"username":"testuser","email":"test@example.com","password":"Password123!"}'
+
+   # Login
+   curl -X POST http://localhost:8080/api/v1/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"testuser","password":"Password123!"}'
+   ```
+
+### Development Infrastructure
+
+The development environment uses Docker Compose to provide:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| PostgreSQL | `localhost:5432` | Primary database (dev + test DBs) |
+| Redis | `localhost:6379` | Caching and session storage |
+| Jaeger | `http://localhost:16686` | Distributed tracing UI |
+| Prometheus | `http://localhost:9090` | Metrics collection |
+
+**Database Configuration:**
+- **Development DB**: `commercium_db` 
+- **Test DB**: `commercium_test_db` (automatically created)
+- **User**: `commercium_user`
+- **Password**: `commercium_password`
+
+### Development Workflow
+
 ```bash
-git clone <repository-url>
-cd ecommerce-platform
-make setup-dev
+# Start only databases for lightweight development
+make dev-db-up
+
+# Run integration tests (automatically starts required services)
+make test-integration
+
+# Full development environment
+make dev-up
+
+# View logs
+make dev-db-logs
+
+# Clean shutdown
+make dev-down
 ```
 
-2. **Start infrastructure**:
-```bash
-docker-compose up -d postgres redis kafka rabbitmq elasticsearch
-```
+### Testing Approach
 
-3. **Run services**:
-```bash
-make run-all
-```
+The project uses a **multi-tier testing strategy**:
 
-4. **Access services**:
-- GraphQL Playground: http://localhost:8080/playground
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000
-- Kibana: http://localhost:5601
+1. **Unit Tests**: Fast tests with no external dependencies
+   ```bash
+   make test-unit
+   ```
+
+2. **Integration Tests**: Full API testing with real database
+   ```bash
+   make test-integration  # Automatically starts dev database
+   ```
+
+3. **Local Service Testing**: Run services against real infrastructure
+   ```bash
+   make run-user-service  # Starts service with PostgreSQL, Redis, etc.
+   ```
+
+**Test Database Strategy:**
+- Integration tests use `commercium_test_db` (separate from development data)
+- Tests automatically skip if infrastructure is unavailable (CI-friendly)
+- Database is reset between test runs for consistency
+
+### Configuration Management
+
+The project supports environment-specific configurations:
+
+- `configs/config.yaml` - Basic development config
+- `configs/config-full.yaml` - Complete config with all services
+- Docker Compose automatically configures service connectivity
+
+**Environment Variables:**
+```bash
+CONFIG_PATH=configs/config-full.yaml  # Override config file
+```
 
 ## Project Structure
 

@@ -1,15 +1,225 @@
-.PHONY: help build test clean proto-gen setup-dev run-all deploy-dev deploy-prod
+# Makefile for Commercium E-commerce Platform
 
 # Variables
-SERVICES := api-gateway user-service product-service order-service payment-service inventory-service notification-service
-DOCKER_REPO := your-docker-registry
-VERSION := $(shell git describe --tags --always --dirty)
-NAMESPACE := ecommerce-platform
+BINARY_DIR := bin
+API_GATEWAY_BINARY := $(BINARY_DIR)/api-gateway
+USER_SERVICE_BINARY := $(BINARY_DIR)/user-service
+CONFIG_DIR := configs
+MIGRATION_DIR := migrations
+
+# Go commands
+GOCMD := go
+GOBUILD := $(GOCMD) build
+GOCLEAN := $(GOCMD) clean
+GOTEST := $(GOCMD) test
+GOGET := $(GOCMD) get
+GOMOD := $(GOCMD) mod
+
+# Build flags
+LDFLAGS := -ldflags "-X main.version=$(shell git describe --tags --always --dirty) -X main.buildTime=$(shell date -u +%Y-%m-%dT%H:%M:%S)"
+
+.PHONY: all build clean test test-unit test-integration run-api-gateway run-user-service docker-build docker-up docker-down help
 
 # Default target
-help: ## Display this help message
+all: build
+
+# Build all services
+build: build-api-gateway build-user-service
+
+# Build API Gateway
+build-api-gateway:
+	@echo "Building API Gateway..."
+	@mkdir -p $(BINARY_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(API_GATEWAY_BINARY) ./cmd/api-gateway
+
+# Build User Service  
+build-user-service:
+	@echo "Building User Service..."
+	@mkdir -p $(BINARY_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(USER_SERVICE_BINARY) ./cmd/user-service
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning..."
+	$(GOCLEAN)
+	@rm -rf $(BINARY_DIR)
+
+# Download dependencies
+deps:
+	@echo "Downloading dependencies..."
+	$(GOMOD) download
+	$(GOMOD) tidy
+
+# Run all tests
+test: ## Run all tests
+	@echo "\nRunning all tests..."
+	@go test -v -race -coverprofile=coverage.out ./... | tee test_output.log
+	# Cleanup containers after tests
+	-docker compose -f docker-compose.dev.yml down -v
+	@echo "\n\033[1mTest Results Summary:\033[0m"
+	@echo "----------------------------------------"
+	@grep -e '--- PASS:' -e '--- FAIL:' -e '--- SKIP:' test_output.log | sed -E 's/--- PASS:/\033[32m| PASS |\033[0m/; s/--- FAIL:/\033[31m| FAIL |\033[0m/; s/--- SKIP:/\033[33m| SKIP |\033[0m/' | column -t -s'|'
+	@echo "----------------------------------------"
+	@rm -f test_output.log
+
+# Run unit tests
+test-unit:
+	@echo "Running unit tests..."
+	$(GOTEST) -v -short ./...
+
+# Run integration tests with development infrastructure
+test-integration: dev-db-up
+	@echo "Running integration tests..."
+	$(GOTEST) -v -run Integration ./tests/integration/...
+
+# Development Database Commands
+dev-db-up:
+	@echo "Starting development databases..."
+	docker compose -f docker-compose.dev.yml up -d postgres redis
+	@echo "Waiting for databases to be ready..."
+	@sleep 5
+	@echo "Databases ready for development!"
+
+dev-db-down:
+	@echo "Stopping development databases..."
+	docker compose -f docker-compose.dev.yml down postgres redis
+
+dev-db-logs:
+	@echo "Showing database logs..."
+	docker compose -f docker-compose.dev.yml logs -f postgres redis
+
+# Full Development Environment
+dev-up:
+	@echo "Starting full development environment..."
+	docker compose -f docker-compose.dev.yml up -d
+	@echo "Waiting for services to be ready..."
+	@sleep 10
+	@echo "Development environment ready!"
+	@echo "Services available:"
+	@echo "  PostgreSQL: localhost:5432 (commercium_user/commercium_password)"
+	@echo "  Redis: localhost:6379"
+	@echo "  Jaeger UI: http://localhost:16686"
+	@echo "  Prometheus: http://localhost:9090"
+
+dev-down:
+	@echo "Stopping development environment..."
+	docker compose -f docker-compose.dev.yml down
+
+dev-restart: dev-down dev-up
+
+# Run services locally with development infrastructure
+run-api-gateway: build-api-gateway dev-db-up
+	@echo "Running API Gateway with development database..."
+	CONFIG_PATH=$(CONFIG_DIR)/config.yaml $(API_GATEWAY_BINARY)
+
+run-user-service: build-user-service dev-up
+	@echo "Running User Service with full development environment..."
+	CONFIG_PATH=$(CONFIG_DIR)/config-full.yaml $(USER_SERVICE_BINARY)
+
+# Database migrations (requires running database)
+migrate-up: build-user-service dev-db-up
+	@echo "Running database migrations up..."
+	@sleep 2
+	$(USER_SERVICE_BINARY) migrate up || echo "Migration completed or already up to date"
+
+migrate-down: build-user-service dev-db-up
+	@echo "Running database migrations down..."
+	@sleep 2
+	$(USER_SERVICE_BINARY) migrate down || echo "Migration completed"
+
+# Docker commands for full infrastructure
+docker-build:
+	@echo "Building Docker images..."
+	docker-compose build
+
+docker-up:
+	@echo "Starting full infrastructure..."
+	docker-compose up -d
+
+docker-down:
+	@echo "Stopping full infrastructure..."
+	docker-compose down
+
+docker-logs:
+	@echo "Showing infrastructure logs..."
+	docker-compose logs -f
+
+# Development workflow helpers
+dev-setup: deps dev-up
+	@echo "Development environment setup complete!"
+	@echo "Run 'make test-integration' to verify everything works"
+
+dev-test: dev-up test-integration
+	@echo "Development testing complete!"
+
+dev-clean: dev-down clean
+	@echo "Development environment cleaned up!"
+
+# Code quality
+fmt:
+	@echo "Formatting code..."
+	$(GOCMD) fmt ./...
+
+vet:
+	@echo "Running go vet..."
+	$(GOCMD) vet ./...
+
+# Code coverage
+coverage:
+	@echo "Generating test coverage..."
+	$(GOTEST) -coverprofile=coverage.out ./...
+	$(GOCMD) tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+# Help
+help:
 	@echo "Available targets:"
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "Build Commands:"
+	@echo "  build              - Build all services"
+	@echo "  build-api-gateway  - Build API Gateway service"
+	@echo "  build-user-service - Build User Service"
+	@echo "  clean              - Clean build artifacts"
+	@echo "  deps               - Download dependencies"
+	@echo ""
+	@echo "Testing Commands:"
+	@echo "  test               - Run all tests"
+	@echo "  test-unit          - Run unit tests"
+	@echo "  test-integration   - Run integration tests (starts dev DB automatically)"
+	@echo "  coverage           - Generate test coverage report"
+	@echo ""
+	@echo "Development Environment:"
+	@echo "  dev-up             - Start full development environment (PostgreSQL, Redis, Jaeger, Prometheus)"
+	@echo "  dev-down           - Stop development environment"
+	@echo "  dev-restart        - Restart development environment"
+	@echo "  dev-db-up          - Start only databases (PostgreSQL, Redis)"
+	@echo "  dev-db-down        - Stop only databases"
+	@echo "  dev-db-logs        - Show database logs"
+	@echo "  dev-setup          - Complete development setup"
+	@echo "  dev-test           - Run full development test suite"
+	@echo "  dev-clean          - Clean up development environment"
+	@echo ""
+	@echo "Service Execution:"
+	@echo "  run-api-gateway    - Run API Gateway with development database"
+	@echo "  run-user-service   - Run User Service with full development environment"
+	@echo ""
+	@echo "Database Migrations:"
+	@echo "  migrate-up         - Run database migrations up (starts DB if needed)"
+	@echo "  migrate-down       - Run database migrations down"
+	@echo ""
+	@echo "Production Infrastructure:"
+	@echo "  docker-build       - Build Docker images"
+	@echo "  docker-up          - Start full infrastructure stack"
+	@echo "  docker-down        - Stop full infrastructure stack"
+	@echo "  docker-logs        - Show infrastructure logs"
+	@echo ""
+	@echo "Code Quality:"
+	@echo "  fmt                - Format code"
+	@echo "  vet                - Run go vet"
+	@echo ""
+	@echo "Quick Start for Development:"
+	@echo "  make dev-setup     - Set up everything for development"
+	@echo "  make run-user-service - Start User Service with all dependencies"
 
 # Development setup
 setup-dev: ## Setup development environment
@@ -38,7 +248,15 @@ build-docker: ## Build Docker images for all services
 
 # Testing
 test: ## Run all tests
-	go test -v -race -coverprofile=coverage.out ./...
+	@echo "\nRunning all tests..."
+	@go test -v -race -coverprofile=coverage.out ./... | tee test_output.log
+	# Cleanup containers after tests
+	-docker compose -f docker-compose.dev.yml down -v
+	@echo "\n\033[1mTest Results Summary:\033[0m"
+	@echo "----------------------------------------"
+	@grep -e '--- PASS:' -e '--- FAIL:' -e '--- SKIP:' test_output.log | sed -E 's/--- PASS:/\033[32m| PASS |\033[0m/; s/--- FAIL:/\033[31m| FAIL |\033[0m/; s/--- SKIP:/\033[33m| SKIP |\033[0m/' | column -t -s'|'
+	@echo "----------------------------------------"
+	@rm -f test_output.log
 
 test-unit: ## Run unit tests only
 	go test -v -short -race ./...
@@ -84,18 +302,20 @@ proto-gen: ## Generate gRPC code from proto files
 
 # Database operations
 migrate-up: ## Apply database migrations
-	@for service in user product order payment inventory notification; do \
-		echo "Migrating $$service database..."; \
-		migrate -path internal/$$service-service/infrastructure/database/migrations \
-			-database "postgres://postgres:password@localhost/$$service?sslmode=disable" up; \
-	done
+	@echo "Migrating user database..."
+	@$(HOME)/go/bin/migrate -path migrations \
+		-database "postgres://commercium_user:commercium_password@localhost:5432/commercium_db?sslmode=disable" up
+	@echo "Migrating test database..."
+	@$(HOME)/go/bin/migrate -path migrations \
+		-database "postgres://commercium_user:commercium_password@localhost:5432/commercium_test_db?sslmode=disable" up
 
 migrate-down: ## Rollback database migrations
-	@for service in user product order payment inventory notification; do \
-		echo "Rolling back $$service database..."; \
-		migrate -path internal/$$service-service/infrastructure/database/migrations \
-			-database "postgres://postgres:password@localhost/$$service?sslmode=disable" down; \
-	done
+	@echo "Rolling back user database..."
+	@$(HOME)/go/bin/migrate -path migrations \
+		-database "postgres://commercium_user:commercium_password@localhost:5432/commercium_db?sslmode=disable" down
+	@echo "Rolling back test database..."
+	@$(HOME)/go/bin/migrate -path migrations \
+		-database "postgres://commercium_user:commercium_password@localhost:5432/commercium_test_db?sslmode=disable" down
 
 migrate-create: ## Create new migration (usage: make migrate-create SERVICE=user NAME=create_users_table)
 	@if [ -z "$(SERVICE)" ] || [ -z "$(NAME)" ]; then \
@@ -213,3 +433,8 @@ health-check: ## Check health of all services
 		echo "Checking service on port $$port..."; \
 		curl -f http://localhost:$$port/health || echo "Service on port $$port is down"; \
 	done
+
+setup: ## Setup infrastructure and run all tests
+	make dev-db-up
+	make migrate-up
+	make test

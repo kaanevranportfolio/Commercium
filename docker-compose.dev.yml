@@ -1,0 +1,86 @@
+# Development Docker Compose
+# This file contains only the essential services needed for development and testing
+version: '3.8'
+
+services:
+  # PostgreSQL Database - Essential for User Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: commercium-postgres-dev
+    environment:
+      POSTGRES_USER: commercium_user
+      POSTGRES_PASSWORD: commercium_password
+      POSTGRES_DB: commercium_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init-databases.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U commercium_user -d commercium_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Redis Cache - Essential for User Service sessions
+  redis:
+    image: redis:7-alpine
+    container_name: commercium-redis-dev
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Jaeger for Distributed Tracing - Lightweight for development
+  jaeger:
+    image: jaegertracing/all-in-one:1.49
+    container_name: commercium-jaeger-dev
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # HTTP collector
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+      SPAN_STORAGE_TYPE: memory
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+  # Prometheus for Metrics - Development configuration
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: commercium-prometheus-dev
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus-dev.yml:/etc/prometheus/prometheus.yml
+      - prometheus_dev_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=24h'  # Shorter retention for dev
+      - '--web.enable-lifecycle'
+    networks:
+      - dev-network
+    restart: unless-stopped
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+  prometheus_dev_data:
+
+networks:
+  dev-network:
+    driver: bridge
+    name: commercium-dev-network
