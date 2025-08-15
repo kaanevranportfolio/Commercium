@@ -1,0 +1,24 @@
+# Phase 1 Development Configuration
+environment: development
+version: "v0.1.0"
+
+server:
+  port: 8080
+  host: "localhost"
+  read_timeout: 10
+  write_timeout: 10
+  idle_timeout: 60
+
+logger:
+  level: debug
+  format: json
+
+metrics:
+  enabled: true
+  path: /metrics
+  namespace: commercium
+
+tracing:
+  enabled: false
+  service_name: api-gateway
+  sample_rate: 1.0

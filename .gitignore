@@ -1,0 +1,50 @@
+# Dependencies
+/vendor/
+
+# Build artifacts
+/bin/
+/logs/
+*.log
+
+# Test artifacts
+coverage.out
+coverage.html
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes secrets
+/deployments/kubernetes/secrets/
+
+# Generated files
+/proto/generated/
+/docs/generated/
+
+# Cache
+.cache/
+
+# Runtime
+*.pid
